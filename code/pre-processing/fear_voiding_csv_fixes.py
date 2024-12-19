@@ -191,6 +191,8 @@ def combine_dfs(pose_path, side_path, void_path, shock_on_path, shock_off_path, 
 
         pose_time_df.loc[tone_off, 'Tone_End'] = True
 
+    pose_time_df["Frame"] = pose_time_df.index
+    
     pose_time_df.to_csv(new_path)
 
 # %%%   
@@ -250,8 +252,14 @@ def main():
                 "trial" : trial,
                 "video_path" : str(data_dir / 'videos' / f'{trial + '_'+ folder[-12:] + '_Side_view'}.AVI'), #/home/thomas/washu/behavior_clustering/data/fear_voiding/videos/Evaluation_Session1 _ Ai213_7-6_#2 _Side_view.AVI
             }
+
+    df = pd.read_csv(new_path)
+    regex = r"(_x|_y)$"
+    matching_column_names = [col for col in df.columns if pd.Series(col).str.contains(regex).any()]
+    metadata_json["data_columns"] = matching_column_names
+    metadata_json["event_columns"] = ["Is_Voiding", "Shock_Start", "Shock_End", "Tone_Start", "Tone_End"]
     
-    with open(data_dir / 'metadata.json', 'w') as f:
+    with open(dst_dir / 'metadata.json', 'w') as f:
         json.dump(metadata_json, f)
 
     print(metadata_json)
