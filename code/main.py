@@ -16,6 +16,7 @@ import cv2
 import pandas as pd
 import cv2
 import argparse
+import pickle
 
 
 def load_metadata(file_path):
@@ -143,12 +144,13 @@ def increase_dfs(meta_data, factor=4):
     return meta_data
 
 
-def make_output_directory(meta_data, metadatasource):
-    output_path = f'./../outputs/{meta_data["experiment"]}/'
+def make_output_directory(meta_data, metadatasource, output_path_name):
+    output_path = f"./../outputs/{output_path_name}/"
+
     counter = 0
     while os.path.exists(output_path):
         counter += 1
-        output_path = f'./../outputs/{meta_data["experiment"]}_{counter}/'
+        output_path = f"./../outputs/{output_path_name}_{counter}/"
 
     meta_data["output_path"] = output_path
     os.makedirs(meta_data["output_path"], exist_ok=True)
@@ -156,32 +158,55 @@ def make_output_directory(meta_data, metadatasource):
     return meta_data
 
 
+def pickle_meta_data(meta_data):
+
+    with open(f"{meta_data['output_path']}/meta_data.pkl", "wb") as f:
+        pickle.dump(meta_data, f)
+
+
 import json
 import os
 
 
-def main(bout_frames=16, reduction_factor=4):
+def main(
+    metadatasource,
+    bout_frames=16,
+    reduction_factor=4,
+    clustering="tsne",
+    rotation=True,
+    video=False,
+):
     # Metadata source
-    metadatasource = (
-        "/home/thomas/washu/behavior_clustering/data/Fang/processed_csvs/metadata.json"
-    )
 
     print("Step 1: Load and process metadata")
     # Load and process metadata
     meta_data = load_metadata(metadatasource)
     meta_data = reduce_dfs(meta_data, reduction_factor)
-    if meta_data["experiment"] == "fear_voiding":
-        meta_data = rotate_all(meta_data, ref_point1="shoulder", ref_point2="Hipbone")
-    else:
-        meta_data = rotate_all(meta_data)
 
-    meta_data = make_output_directory(meta_data, metadatasource)
+    if rotation:
+        if meta_data["experiment"] == "fear_voiding":
+            meta_data = rotate_all(
+                meta_data, ref_point1="shoulder", ref_point2="Hipbone"
+            )
+        else:
+            meta_data = rotate_all(meta_data)
+
+    output_path_name = f"{meta_data["experiment"]}_{bout_frames}_frames"
+    if reduction_factor != 1:
+        output_path_name += f"_reduced{reduction_factor}x"
+    output_path_name += f"_{clustering}"
+    if rotation:
+        output_path_name += "_rotated"
+
+    meta_data = make_output_directory(meta_data, metadatasource, output_path_name)
 
     # Save parameters to a config file in the output directory
     config_path = os.path.join(meta_data["output_path"], "args.json")
     config = {
         "bout_frames": bout_frames,
         "reduction_factor": reduction_factor,
+        "clustering": clustering,
+        "rotation": rotation,
     }
     with open(config_path, "w") as config_file:
         json.dump(config, config_file, indent=4)
@@ -189,36 +214,78 @@ def main(bout_frames=16, reduction_factor=4):
     print("Step 2: TSNE Clustering")
     # Add bouts and cluster videos
     meta_data = add_bouts(meta_data, bout_frames=bout_frames)
-    meta_data = tsne.cluster_videos_with_pca(meta_data, bout_frames=bout_frames)
+
+    if clustering == "tsne":
+        meta_data = tsne.cluster_videos(meta_data, bout_frames=bout_frames)
+    elif clustering == "pca":
+        meta_data = tsne.cluster_videos_with_pca(meta_data, bout_frames=bout_frames)
+    elif clustering == "pre_group":
+        meta_data = tsne.cluster_videos_pre_group(meta_data, bout_frames=bout_frames)
+
+    # if pca:
+    #     meta_data = tsne.cluster_videos_with_pca(meta_data, bout_frames=bout_frames)
+    # else:
+    #     meta_data = tsne.cluster_videos_pre_group(meta_data, bout_frames=bout_frames)
 
     print("Step 3: Generate outputs")
     # Revert dataframes and save outputs
     meta_data = increase_dfs(meta_data, reduction_factor)
     save_csvs(meta_data)
     save_tsne_results(meta_data)
+    pickle_meta_data(meta_data)
 
     print("Step 4: Generate graphs and videos")
     # Generate graphs and videos
     graphs.tsne_plot(meta_data)
     graphs.create_heatmap_plot(meta_data)
-    videos.generate_videos(meta_data["output_path"])
+
+    if video:
+        videos.generate_videos(meta_data["output_path"])
 
 
 if __name__ == "__main__":
 
-    # Parse command-line arguments for bout_frames and reduction_factor
-    parser = argparse.ArgumentParser(
-        description="Process metadata and generate outputs."
-    )
-    parser.add_argument(
-        "--bout_frames", type=int, default=16, help="Number of frames in a bout"
-    )
-    parser.add_argument(
-        "--reduction_factor",
-        type=int,
-        default=4,
-        help="Factor by which dataframes are reduced",
+    metadatasource = "/home/thomas/washu/behavior_clustering/data/fear_voiding/processed_csvs/metadata.json"
+
+    bout_frames = 8
+    reduction_factor = 4
+    clustering = "pre_group"
+    rotation = True
+    video = False
+
+    main(
+        metadatasource=metadatasource,
+        bout_frames=bout_frames,
+        reduction_factor=reduction_factor,
+        clustering=clustering,
+        rotation=rotation,
+        video=video,
     )
 
-    args = parser.parse_args()
-    main(bout_frames=args.bout_frames, reduction_factor=args.reduction_factor)
+    # # Parse command-line arguments for bout_frames and reduction_factor
+    # parser = argparse.ArgumentParser(
+    #     description="Process metadata and generate outputs."
+    # )
+    # parser.add_argument(
+    #     "--bout_frames", type=int, default=16, help="Number of frames in a bout"
+    # )
+    # parser.add_argument(
+    #     "--reduction_factor",
+    #     type=int,
+    #     default=4,
+    #     help="Factor by which dataframes are reduced",
+    # )
+    # parser.add_argument(
+    #     "--pca",
+    #     type=bool,
+    #     default=True,
+    #     help="Factor by which dataframes are reduced",
+    # )
+    # args = parser.parse_args()
+    # main(
+    #     bout_frames=args.bout_frames,
+    #     reduction_factor=args.reduction_factor,
+    #     pca=args.pca,
+    # )
+
+# %%

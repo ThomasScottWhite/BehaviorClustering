@@ -1,2 +1,5 @@
 /outputs/*
 /data/*
+*.ipynb
+
+__pycache__/
