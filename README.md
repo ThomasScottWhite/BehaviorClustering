@@ -12,7 +12,7 @@ This project aims to cluster behavioral data for various analyses, such as creat
 
 ## Overview
 
-The goal of this project is to take raw behavioral tracking data (for example, from DeepLabCut) and transform it into meaningful clusters of behavior. These clusters can then be used to generate visualizations (like heatmaps) and videos that help interpret and understand the data.
+The goal of this project is to take raw behavioral tracking data and transform it into meaningful clusters of behavior. These clusters can then be used to generate visualizations and videos that help interpret and understand the data.
 
 The pipeline is designed to:
 - **Clean** and **standardize** raw tracking data.
@@ -81,7 +81,7 @@ Pre-processing focuses on preparing the raw data before the main clustering work
    - **Description**: Align additional events (like foot shocks) into the dataset. These events will appear on the final heatmap and can be used to correlate behavior with specific stimuli.
 
 3. **Remove or Filter Low-Likelihood Data**  
-   - **Description**: DeepLabCut provides a likelihood (or confidence) metric for each tracked point. Data with very low likelihood can introduce noise. Filtering out or imputing these data points improves clustering quality.
+   - **Description**: DeepLabCut provides a likelihood (or confidence) metric for each tracked point. Data with very low likelihood can introduce noise. Filtering out or removing and interpolating  these points may improve clustering quality.
 
 4. **Convert Points to Relative Coordinates**  
    - **Description**: Often, it is helpful to make data relative to a stable reference point, such as the mouse’s nose. This helps standardize orientation and position across subjects or sessions.
