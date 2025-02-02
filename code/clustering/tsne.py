@@ -7,7 +7,7 @@ from sklearn.manifold import TSNE
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
-
+from sklearn.preprocessing import StandardScaler
 from sklearn.manifold import TSNE
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
@@ -163,6 +163,11 @@ def cluster_videos_with_pca(
 
     tsne_input = np.vstack(tsne_input)
 
+    # Apply Scaler Normalization
+    scaler = StandardScaler()
+    tsne_input = scaler.fit_transform(tsne_input)
+    print("Applied standardization (Z-score normalization)")
+
     # Apply PCA to reduce dimensionality
     pca = PCA(n_components=pca_variance, svd_solver="full")
     pca_input = pca.fit_transform(tsne_input)
@@ -170,11 +175,17 @@ def cluster_videos_with_pca(
 
     # Apply t-SNE
     tsne_results = TSNE(
-        n_components=2, perplexity=30, method="barnes_hut", random_state=42
+        n_components=2,
+        perplexity=15,  # Reduced for finer behavioral clusters
+        learning_rate=150,
+        max_iter=2500,
+        init="pca",
+        method="barnes_hut",
+        random_state=42,
     ).fit_transform(pca_input)
 
     # Cluster using k-means
-    kmeans_labels = KMeans(n_clusters=8, random_state=42).fit_predict(tsne_results)
+    kmeans_labels = KMeans(n_clusters=15, random_state=42).fit_predict(tsne_results)
 
     # Create DataFrame for t-SNE results and assign cluster labels
     tsne_df = pd.DataFrame(tsne_results, columns=["TSNE_1", "TSNE_2"])

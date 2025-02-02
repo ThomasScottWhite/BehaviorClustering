@@ -13,6 +13,10 @@ import os
 import numpy as np
 import pandas as pd
 import pickle
+import matplotlib.pyplot as plt
+import os
+from pathlib import Path
+import pandas as pd
 
 
 def tsne_plot(meta_data):
@@ -30,6 +34,7 @@ def tsne_plot(meta_data):
     plt.title("t-SNE with K-means Clustering")
     plt.legend()
     plt.savefig(f"{meta_data['output_path']}/tsne_results_by_video.png")
+    plt.close()  # Close the figure
 
     plt.figure(figsize=(10, 8))
     for cluster in range(tsne_df["Cluster"].nunique()):
@@ -46,6 +51,7 @@ def tsne_plot(meta_data):
     plt.title("t-SNE with K-means Clustering")
     plt.legend()
     plt.savefig(f"{meta_data['output_path']}/tsne_results_by_cluster.png")
+    plt.close()  # Close the figure
 
 
 def create_heatmap_plot(meta_data):
@@ -184,20 +190,16 @@ def create_heatmap_plot(meta_data):
     plt.ylabel("Trial - Video")
     plt.title("Heatmap of Clusters with Event Markers Across Trial and Video")
     plt.savefig(f"{meta_data['output_path']}/cluster_heatmap.png")
+    plt.close()  # Close the figure
 
 
-def graph_pie(meta_data):
+def combine_dfs(meta_data):
 
     event_dict = {"Cluster": "mean"}
     for event in meta_data["event_columns"]:
         event_dict[event] = "max"
-
-    # if "Seconds" in meta_data["videos"].values[0]["df"]:
-    #     event_dict["Seconds"] = "mean"
-
     event_dict["Cluster"] = "mean"
 
-    print(event_dict)
     grouped_dfs = []
     for video_name, video in meta_data["videos"].items():
 
@@ -222,7 +224,12 @@ def graph_pie(meta_data):
         video_df["Trial"] = video["trial"]
         grouped_dfs.append(video_df)
 
-    df = pd.concat(grouped_dfs, ignore_index=True)
+    return pd.concat(grouped_dfs, ignore_index=True)
+
+
+def graph_pie(meta_data):
+
+    df = combine_dfs(meta_data)
 
     for group_name, group_df in df.groupby("Trial"):
         for video_name, video_df in group_df.groupby("Video"):
@@ -246,6 +253,7 @@ def graph_pie(meta_data):
             graph_path = Path(meta_data["output_path"]) / "graphs" / group_name
             os.makedirs(graph_path, exist_ok=True)
             plt.savefig(graph_path / f"{video_name}.png")
+            plt.close()  # Close the figure
 
     for group_name, group_df in df.groupby("Trial"):
 
@@ -265,12 +273,240 @@ def graph_pie(meta_data):
         graph_path = Path(meta_data["output_path"]) / "graphs" / group_name
         os.makedirs(graph_path, exist_ok=True)
         plt.savefig(graph_path / f"{group_name}.png")
+        plt.close()  # Close the figure
+
+
+def graph_bar(meta_data):
+
+    df = combine_dfs(meta_data)
+
+    # Iterate through groups in "Trial"
+    for group_name, group_df in df.groupby("Trial"):
+        # Collect data for stacked bar chart
+        cluster_percentages = []
+        video_names = []
+
+        for video_name, video_df in group_df.groupby("Video"):
+            video_names.append(video_name)
+            # Get cluster percentages for the current video
+            cluster_counts = (
+                video_df["Cluster"].value_counts(normalize=True).sort_index() * 100
+            )
+            cluster_percentages.append(cluster_counts)
+
+        # Convert collected data to a DataFrame for easier plotting
+        stacked_data = pd.DataFrame(cluster_percentages, index=video_names).fillna(0).T
+
+        # Plot the stacked bar chart
+        plt.figure(figsize=(12, 8))
+        bottom = None
+        for cluster_label, percentages in stacked_data.iterrows():
+            plt.bar(
+                stacked_data.columns,
+                percentages,
+                bottom=bottom,
+                label=f"Cluster {int(cluster_label)}",
+            )
+            bottom = percentages if bottom is None else bottom + percentages
+
+        # Customize the chart
+        plt.xlabel("Videos")
+        plt.ylabel("Percentage")
+        plt.title(f"Cluster Distribution per Video in {group_name}")
+        plt.ylim(0, 100)  # Ensure y-axis is 0-100%
+        plt.xticks(rotation=45, ha="right")  # Rotate video names for clarity
+        plt.legend(title="Clusters", bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.grid(axis="y", linestyle="--", alpha=0.7)
+
+        # Save the graph
+        graph_path = Path(meta_data["output_path"]) / "graphs" / group_name
+        plt.savefig(graph_path / f"{group_name}_bar.png", bbox_inches="tight")
+        os.makedirs(graph_path, exist_ok=True)
+        plt.close()  # Close the figure
+
+
+def graph_mouse_var_graph(meta_data):
+    df = combine_dfs(meta_data)
+    cluster_percentages = []
+    video_names = []
+
+    # Iterate through groups in "Trial"
+    for group_name, group_df in df.groupby("Trial"):
+        # Collect data for stacked bar chart
+
+        video_names.append(group_name)
+        # Get cluster percentages for the current video
+        cluster_counts = (
+            group_df["Cluster"].value_counts(normalize=True).sort_index() * 100
+        )
+        cluster_percentages.append(cluster_counts)
+
+    # Convert collected data to a DataFrame for easier plotting
+    stacked_data = pd.DataFrame(cluster_percentages, index=video_names).fillna(0).T
+
+    # Plot the stacked bar chart
+    plt.figure(figsize=(12, 8))
+    bottom = None
+    for cluster_label, percentages in stacked_data.iterrows():
+        plt.bar(
+            stacked_data.columns,
+            percentages,
+            bottom=bottom,
+            label=f"Cluster {int(cluster_label)}",
+        )
+        bottom = percentages if bottom is None else bottom + percentages
+
+    # Customize the chart
+    plt.xlabel("Videos")
+    plt.ylabel("Percentage")
+    plt.title(f"Cluster Distribution per Trial")
+    plt.ylim(0, 100)  # Ensure y-axis is 0-100%
+    plt.xticks(rotation=45, ha="right")  # Rotate video names for clarity
+    plt.legend(title="Clusters", bbox_to_anchor=(1.05, 1), loc="upper left")
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
+
+    # Save the graph
+    # Save the graph
+    graph_path = Path(meta_data["output_path"]) / "graphs"
+    os.makedirs(graph_path, exist_ok=True)
+
+    plt.savefig(graph_path / "collective_bar_chart.png", bbox_inches="tight")
+    plt.close()  # Close the figure
+
+
+def freezing_graphs(meta_data):
+    dfs = []
+
+    # Combines Video DFs into one dataframe
+    for video_name, video_dict in meta_data["videos"].items():
+        df = video_dict["df"]
+        original_columns = meta_data["original_columns"]
+        original_columns = [
+            column
+            for column in original_columns
+            if column in df.columns and (column.endswith("_x") or column.endswith("_y"))
+        ]
+
+        original_columns += ["Frame", "Cluster", "Group"]
+        df = df[original_columns].copy()
+
+        # Extract all x and y coordinates separately
+        x_columns = [col for col in df.columns if col.endswith("_x")]
+        y_columns = [col for col in df.columns if col.endswith("_y")]
+
+        # Calculate centroid coordinates
+        centroid_x = df[x_columns].mean(axis=1)
+        centroid_y = df[y_columns].mean(axis=1)
+
+        centroid_df = pd.DataFrame(
+            {
+                "Centroid_x": centroid_x,
+                "Centroid_y": centroid_y,
+                "Frame": df["Frame"],
+                "Cluster": df["Cluster"],
+                "Group": df["Group"],
+            }
+        )
+
+        # Calculate Euclidean distance (rate of change) for each cluster
+        df["Delta_x"] = centroid_df["Centroid_x"].diff()
+        df["Delta_y"] = centroid_df["Centroid_y"].diff()
+        df["Rate_of_Change"] = np.sqrt(df["Delta_x"] ** 2 + df["Delta_y"] ** 2)
+
+        # Remove NaN and infinite values from rate of change
+        df["Rate_of_Change"].replace([np.inf, -np.inf], np.nan, inplace=True)
+        df.dropna(subset=["Rate_of_Change"], inplace=True)
+
+        df["Video_Name"] = video_name
+        dfs.append(df)
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+
+    df = (
+        combined_df[["Rate_of_Change", "Group", "Video_Name", "Cluster"]]
+        .groupby(["Group", "Video_Name", "Cluster"])
+        .sum()
+        .reset_index()
+    )
+
+    graph_base_path = Path(meta_data["output_path"]) / "graphs" / "freezing"
+
+    # Cluster Rate Of Change Distribution (Linear Scale)
+    for cluster in df["Cluster"].unique():
+        cluster_df = df[df["Cluster"] == cluster]
+        data = cluster_df["Rate_of_Change"]
+
+        if data.empty:
+            continue  # Skip empty clusters
+
+        sns.histplot(data, bins=30, kde=True)
+        plt.title(f"Cluster {cluster} Rate of Change Distribution")
+        plt.xlabel("Value")
+        plt.ylabel("Frequency")
+
+        graph_path = graph_base_path / "linear"
+        graph_path.mkdir(parents=True, exist_ok=True)
+        plt.savefig(graph_path / f"cluster_{cluster}_rate_of_change_distribution.png")
+        plt.close()  # Close the figure
+
+    # Cluster Rate Of Change Distribution (Log Scale)
+    for cluster in df["Cluster"].unique():
+        cluster_df = df[df["Cluster"] == cluster]
+        data = cluster_df["Rate_of_Change"]
+
+        # Ensure only strictly positive values remain
+        data = data[data > 0]
+
+        if data.empty or len(data) < 2:  # Log scale needs at least two positive values
+            continue
+
+        # Define log-spaced bins
+        bin_min, bin_max = data.min(), data.max()
+        if bin_min == bin_max:  # Prevent logspace error
+            bin_min, bin_max = bin_min * 0.9, bin_max * 1.1
+        bins = np.logspace(np.log10(bin_min), np.log10(bin_max), num=30)
+
+        sns.histplot(data, bins=bins, kde=False)
+        plt.title(f"Cluster {cluster} Rate of Change Distribution (Log Scale)")
+        plt.xlabel("Value")
+        plt.ylabel("Frequency")
+        plt.xscale("log")
+
+        graph_path = graph_base_path / "logarithmic"
+        graph_path.mkdir(parents=True, exist_ok=True)
+        plt.savefig(
+            graph_path
+            / f"logarithmic_cluster_{cluster}_rate_of_change_distribution.png"
+        )
+        plt.close()  # Close the figure
+
+    # Rate Of Change Comparison Between Clusters
+    mean_rates = df.groupby("Cluster")["Rate_of_Change"].mean()
+
+    if not mean_rates.empty:
+        sns.barplot(x=mean_rates.index, y=mean_rates.values)
+        plt.xlabel("Cluster")
+        plt.ylabel("Mean Rate of Change")
+        plt.title("Mean Rate of Change by Cluster")
+        plt.savefig(graph_base_path / "mean_rate_of_change_by_cluster.png")
+        plt.close()  # Close the figure
+
+
+def graph_all(meta_data):
+    tsne_plot(meta_data)
+    create_heatmap_plot(meta_data)
+    graph_pie(meta_data)
+    graph_bar(meta_data)
+
+    if meta_data["experiment"] == "fear_voiding":
+        graph_mouse_var_graph(meta_data)
+        freezing_graphs(meta_data)
 
 
 if __name__ == "__main__":
-    # Path to the file
-    file_path = "/home/thomas/washu/behavior_clustering/outputs/fear_voiding_8_frames_reduced4x_pre_group_rotated/meta_data.pkl"
+    file_path = "/home/thomas/washu/behavior_clustering/outputs/fear_voiding_8_frames_reduced4x_pca_rotated_2/meta_data.pkl"
 
-    # Open the file
     with open(file_path, "rb") as file:
         meta_data = pickle.load(file)
+
+    graph_all(meta_data)

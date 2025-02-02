@@ -28,59 +28,46 @@ def load_metadata(file_path):
     return meta_data
 
 
-def rotate_points_global(df, ref_point1, ref_point2):
+def rotate_points_global(df, ref_points=["Nose", "Spine1", "Hipbone"]):
     """
-    Rotate the positional data so that the vector from ref_point1 to ref_point2 is aligned with the x-axis.
-
-    Args:
-        df (pd.DataFrame): DataFrame containing positional data normalized such that the nose is at (0, 0).
-        ref_point1 (str): The name of the first reference point (e.g., 'spinal_front').
-        ref_point2 (str): The name of the second reference point (e.g., 'spinal_low').
-
-    Returns:
-        pd.DataFrame: DataFrame with rotated coordinates.
+    Rotate data to align the plane defined by 3 points (e.g., nose, spine, hip) with the x-axis.
     """
-    # Extract the reference vector
-    vec_x = df[f"{ref_point2}_x"] - df[f"{ref_point1}_x"]
-    vec_y = df[f"{ref_point2}_y"] - df[f"{ref_point1}_y"]
+    # Extract coordinates for the 3 reference points
+    p1 = df[[f"{ref_points[0]}_x", f"{ref_points[0]}_y"]].values
+    p2 = df[[f"{ref_points[1]}_x", f"{ref_points[1]}_y"]].values
+    p3 = df[[f"{ref_points[2]}_x", f"{ref_points[2]}_y"]].values
 
-    # Calculate the angle to rotate (relative to the x-axis)
-    angles = np.arctan2(vec_y, vec_x)
-    mean_angle = np.mean(
-        angles
-    )  # Use the average angle if working with multiple frames
+    # Compute the primary axis using PCA on the 3 points
+    from sklearn.decomposition import PCA
 
-    # Define the rotation matrix
-    cos_theta = np.cos(-mean_angle)
-    sin_theta = np.sin(-mean_angle)
+    pca = PCA(n_components=2)
+    pca.fit(np.vstack([p1, p2, p3]))
+    main_axis = pca.components_[0]  # Direction of maximum variance
+
+    # Calculate rotation angle to align main_axis with x-axis
+    angle = np.arctan2(main_axis[1], main_axis[0])
+    cos_theta, sin_theta = np.cos(-angle), np.sin(-angle)
     rotation_matrix = np.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
 
     # Rotate all points
     rotated_data = {}
     for col in df.columns:
         if "_x" in col:
-            # Get y-coordinate pair
             y_col = col.replace("_x", "_y")
-
-            # Extract x and y coordinates
-            x_vals = df[col]
-            y_vals = df[y_col]
-
-            # Apply the rotation
-            rotated_coords = np.dot(rotation_matrix, np.vstack([x_vals, y_vals]))
-            rotated_data[col] = rotated_coords[0, :]
-            rotated_data[y_col] = rotated_coords[1, :]
+            x_vals = df[col].values
+            y_vals = df[y_col].values
+            rotated_coords = rotation_matrix @ np.vstack([x_vals, y_vals])
+            rotated_data[col] = rotated_coords[0]
+            rotated_data[y_col] = rotated_coords[1]
         else:
-            # Keep non-coordinate data unchanged
             rotated_data[col] = df[col]
 
     return pd.DataFrame(rotated_data)
 
 
-def rotate_all(meta_data, ref_point1="spinal_front", ref_point2="spinal_low"):
+def rotate_all(meta_data, ref_points=["Nose", "Spine1", "Hipbone"]):
     for video in meta_data["videos"].values():
-        video["df"] = rotate_points_global(video["df"], ref_point1, ref_point2)
-
+        video["df"] = rotate_points_global(video["df"], ref_points)
     return meta_data
 
 
@@ -99,14 +86,16 @@ def add_bouts(meta_data, bout_frames=4):
 
 def save_csvs(meta_data):
     for video_name, video in meta_data["videos"].items():
-        os.makedirs(f'{meta_data['output_path']}/{video["trial"]}', exist_ok=True)
+        os.makedirs(f'{meta_data['output_path']}/csvs/{video["trial"]}', exist_ok=True)
         video["df"].to_csv(
-            f'{meta_data['output_path']}/{video["trial"]}/{video_name}.csv'
+            f'{meta_data['output_path']}/csvs/{video["trial"]}/{video_name}.csv'
         )
 
 
 def save_tsne_results(meta_data):
-    meta_data["tsne_results"].to_csv(f"{meta_data['output_path']}/tsne_results.csv")
+    meta_data["tsne_results"].to_csv(
+        f"{meta_data['output_path']}/csvs/tsne_results.csv"
+    )
 
 
 def reduce_dfs(meta_data, factor=4):
@@ -185,9 +174,7 @@ def main(
 
     if rotation:
         if meta_data["experiment"] == "fear_voiding":
-            meta_data = rotate_all(
-                meta_data, ref_point1="shoulder", ref_point2="Hipbone"
-            )
+            meta_data = rotate_all(meta_data)
         else:
             meta_data = rotate_all(meta_data)
 
@@ -234,22 +221,21 @@ def main(
     save_tsne_results(meta_data)
     pickle_meta_data(meta_data)
 
-    print("Step 4: Generate graphs and videos")
-    # Generate graphs and videos
-    graphs.tsne_plot(meta_data)
-    graphs.create_heatmap_plot(meta_data)
+    # print("Step 4: Generate graphs and videos")
+    # # Generate graphs and videos
+    # graphs.graph_all(meta_data)
 
-    if video:
-        videos.generate_videos(meta_data["output_path"])
+    # if video:
+    #     videos.generate_videos(meta_data["output_path"])
 
 
 if __name__ == "__main__":
 
-    metadatasource = "/home/thomas/washu/behavior_clustering/data/fear_voiding/processed_csvs/metadata.json"
+    metadatasource = "/home/thomas/washu/behavior_clustering/data/fear_voiding_velocity_reduced/processed_csvs/metadata.json"
 
     bout_frames = 8
     reduction_factor = 4
-    clustering = "pre_group"
+    clustering = "pca"
     rotation = True
     video = False
 
