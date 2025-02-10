@@ -2,21 +2,9 @@ import pandas as pd
 import numpy as np
 import os
 import seaborn as sns
-from sklearn.manifold import TSNE
-from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from pathlib import Path
-from sklearn.manifold import TSNE
-from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
-import os
-import numpy as np
-import pandas as pd
 import pickle
-import matplotlib.pyplot as plt
-import os
-from pathlib import Path
-import pandas as pd
 
 
 def tsne_plot(meta_data):
@@ -33,7 +21,10 @@ def tsne_plot(meta_data):
     plt.ylabel("TSNE_2")
     plt.title("t-SNE with K-means Clustering")
     plt.legend()
-    plt.savefig(f"{meta_data['output_path']}/tsne_results_by_video.png")
+    graph_path = Path(meta_data["output_path"]) / "graphs"
+    os.makedirs(graph_path, exist_ok=True)
+
+    plt.savefig(graph_path / "tsne_results_by_video.png")
     plt.close()  # Close the figure
 
     plt.figure(figsize=(10, 8))
@@ -50,70 +41,13 @@ def tsne_plot(meta_data):
     plt.ylabel("TSNE_2")
     plt.title("t-SNE with K-means Clustering")
     plt.legend()
-    plt.savefig(f"{meta_data['output_path']}/tsne_results_by_cluster.png")
+    graph_path = Path(meta_data["output_path"]) / "graphs"
+    os.makedirs(graph_path, exist_ok=True)
+    plt.savefig(graph_path / "tsne_results_by_cluster.png")
     plt.close()  # Close the figure
 
 
-def create_heatmap_plot(meta_data):
-
-    event_dict = {"Cluster": "mean"}
-    for event in meta_data["event_columns"]:
-        event_dict[event] = "max"
-
-    # if "Seconds" in meta_data["videos"].values[0]["df"]:
-    #     event_dict["Seconds"] = "mean"
-
-    event_dict["Cluster"] = "mean"
-
-    print(event_dict)
-    grouped_dfs = []
-    for video_name, video in meta_data["videos"].items():
-
-        if not event_dict:  # Check if event_dict is empty
-            # Perform groupby without aggregation
-            video_df = (
-                video["df"]
-                .groupby("Group", as_index=False)
-                .apply(lambda x: x)  # No aggregation, just keep the grouped data
-                .assign(Index=lambda x: x.index)
-            )
-        else:
-            # Perform groupby with aggregation
-            video_df = (
-                video["df"]
-                .groupby("Group", as_index=False)
-                .agg(event_dict)
-                .assign(Index=lambda x: x.index)
-            )
-
-        video_df["Video"] = video_name
-
-        grouped_dfs.append(video_df)
-
-    combined_df = pd.concat(grouped_dfs, ignore_index=True)
-
-    print(combined_df)
-    try:
-        heatmap_data = combined_df.pivot_table(
-            index="Video",  # Combined Trial and Video as the row index
-            columns="Group",  # Group as the x-axis
-            values="Cluster",  # Cluster value for the heatmap
-            aggfunc="mean",  # Aggregating by mean (or other suitable method)
-        ).fillna(
-            0
-        )  # Fill missing values with 0 if necessary
-        plt.figure(figsize=(60, 15))
-    except Exception as e:
-        print(e)
-        return
-
-    ax = sns.heatmap(
-        heatmap_data,
-        cmap="viridis",
-        linewidths=0,
-        cbar_kws={"label": "Cluster"},
-    )
-
+def generate_event_markers(meta_data, combined_df, heatmap_data, ax):
     if meta_data["experiment"] == "Fang":
         for _, row in combined_df.iterrows():
             trial_video_idx = heatmap_data.index.tolist().index(row["Video"])
@@ -174,6 +108,27 @@ def create_heatmap_plot(meta_data):
                     label="Tone_End",
                 )
 
+
+def graph_heatmap(meta_data, combined_df, graph_path):
+
+    heatmap_data = combined_df.pivot_table(
+        index="Video",  # Combined Trial and Video as the row index
+        columns="Group",  # Group as the x-axis
+        values="Cluster",  # Cluster value for the heatmap
+        aggfunc="mean",  # Aggregating by mean (or other suitable method)
+    ).fillna(
+        0
+    )  # Fill missing values with 0 if necessary
+    plt.figure(figsize=(60, 15))
+
+    ax = sns.heatmap(
+        heatmap_data,
+        cmap="viridis",
+        linewidths=0,
+        cbar_kws={"label": "Cluster"},
+    )
+
+    generate_event_markers(meta_data, combined_df, heatmap_data, ax)
     handles, labels = ax.get_legend_handles_labels()
     unique_labels = dict(zip(labels, handles))
 
@@ -189,7 +144,7 @@ def create_heatmap_plot(meta_data):
     plt.xlabel("Group")
     plt.ylabel("Trial - Video")
     plt.title("Heatmap of Clusters with Event Markers Across Trial and Video")
-    plt.savefig(f"{meta_data['output_path']}/cluster_heatmap.png")
+    plt.savefig(graph_path)
     plt.close()  # Close the figure
 
 
@@ -227,10 +182,31 @@ def combine_dfs(meta_data):
     return pd.concat(grouped_dfs, ignore_index=True)
 
 
-def graph_pie(meta_data):
+def create_heatmap_plot(meta_data):
+    combined_df = combine_dfs(meta_data)
+    trial_names = combined_df["Trial"].unique()
+    for trial in trial_names:
+        video_df = combined_df[combined_df["Trial"] == trial]
+        path = (
+            Path(meta_data["output_path"])
+            / "graphs"
+            / "heatmaps"
+            / f"{trial}_heatmap.png"
+        )
+        os.makedirs(path.parent, exist_ok=True)
+        graph_heatmap(meta_data, video_df, path)
+
+    path = Path(meta_data["output_path"]) / "graphs" / "heatmaps" / f"heatmap.png"
+    os.makedirs(path.parent, exist_ok=True)
+
+    graph_heatmap(meta_data, combined_df, path)
+
+
+def graph_cluster_percentage_pie_chart(meta_data):
 
     df = combine_dfs(meta_data)
 
+    # Graphs Individual Video Cluster Percentage
     for group_name, group_df in df.groupby("Trial"):
         for video_name, video_df in group_df.groupby("Video"):
 
@@ -250,11 +226,17 @@ def graph_pie(meta_data):
             )
             plt.title(f"Percentage of Each Cluster in {video_name}")
 
-            graph_path = Path(meta_data["output_path"]) / "graphs" / group_name
+            graph_path = (
+                Path(meta_data["output_path"])
+                / "graphs"
+                / "cluster_percentage_graphs"
+                / group_name
+            )
             os.makedirs(graph_path, exist_ok=True)
             plt.savefig(graph_path / f"{video_name}.png")
             plt.close()  # Close the figure
 
+    # Graphs Collective Cluster Percentage
     for group_name, group_df in df.groupby("Trial"):
 
         cluster_counts = group_df["Cluster"].value_counts(normalize=True) * 100
@@ -270,13 +252,18 @@ def graph_pie(meta_data):
         plt.figure(figsize=(8, 8))
         plt.pie(cluster_counts, labels=labels, autopct=autopct_format, startangle=140)
         plt.title(f"Percentage of Each Cluster in {group_name}")
-        graph_path = Path(meta_data["output_path"]) / "graphs" / group_name
+        graph_path = (
+            Path(meta_data["output_path"])
+            / "graphs"
+            / "cluster_percentage_graphs"
+            / group_name
+        )
         os.makedirs(graph_path, exist_ok=True)
         plt.savefig(graph_path / f"{group_name}.png")
         plt.close()  # Close the figure
 
 
-def graph_bar(meta_data):
+def graph_cluster_percentage_trial_bar_chart(meta_data):
 
     df = combine_dfs(meta_data)
 
@@ -319,13 +306,18 @@ def graph_bar(meta_data):
         plt.grid(axis="y", linestyle="--", alpha=0.7)
 
         # Save the graph
-        graph_path = Path(meta_data["output_path"]) / "graphs" / group_name
+        graph_path = (
+            Path(meta_data["output_path"])
+            / "graphs"
+            / "cluster_percentage_graphs"
+            / group_name
+        )
         plt.savefig(graph_path / f"{group_name}_bar.png", bbox_inches="tight")
         os.makedirs(graph_path, exist_ok=True)
         plt.close()  # Close the figure
 
 
-def graph_mouse_var_graph(meta_data):
+def graph_cluster_percentage_bar_char(meta_data):
     df = combine_dfs(meta_data)
     cluster_percentages = []
     video_names = []
@@ -367,14 +359,17 @@ def graph_mouse_var_graph(meta_data):
 
     # Save the graph
     # Save the graph
-    graph_path = Path(meta_data["output_path"]) / "graphs"
+    graph_path = Path(meta_data["output_path"]) / "graphs" / "cluster_percentage_graphs"
     os.makedirs(graph_path, exist_ok=True)
 
-    plt.savefig(graph_path / "collective_bar_chart.png", bbox_inches="tight")
+    plt.savefig(
+        graph_path / "collective_bar_chart.png",
+        bbox_inches="tight",
+    )
     plt.close()  # Close the figure
 
 
-def freezing_graphs(meta_data):
+def collect_dfs_for_freezing_graphs(meta_data):
     dfs = []
 
     # Combines Video DFs into one dataframe
@@ -414,7 +409,7 @@ def freezing_graphs(meta_data):
         df["Rate_of_Change"] = np.sqrt(df["Delta_x"] ** 2 + df["Delta_y"] ** 2)
 
         # Remove NaN and infinite values from rate of change
-        df["Rate_of_Change"].replace([np.inf, -np.inf], np.nan, inplace=True)
+        df["Rate_of_Change"] = df["Rate_of_Change"].replace([np.inf, -np.inf], np.nan)
         df.dropna(subset=["Rate_of_Change"], inplace=True)
 
         df["Video_Name"] = video_name
@@ -429,9 +424,10 @@ def freezing_graphs(meta_data):
         .reset_index()
     )
 
-    graph_base_path = Path(meta_data["output_path"]) / "graphs" / "freezing"
+    return df
 
-    # Cluster Rate Of Change Distribution (Linear Scale)
+
+def plot_linear_scale(df, graph_base_path):
     for cluster in df["Cluster"].unique():
         cluster_df = df[df["Cluster"] == cluster]
         data = cluster_df["Rate_of_Change"]
@@ -449,7 +445,8 @@ def freezing_graphs(meta_data):
         plt.savefig(graph_path / f"cluster_{cluster}_rate_of_change_distribution.png")
         plt.close()  # Close the figure
 
-    # Cluster Rate Of Change Distribution (Log Scale)
+
+def plot_log_scale(df, graph_base_path):
     for cluster in df["Cluster"].unique():
         cluster_df = df[df["Cluster"] == cluster]
         data = cluster_df["Rate_of_Change"]
@@ -480,7 +477,8 @@ def freezing_graphs(meta_data):
         )
         plt.close()  # Close the figure
 
-    # Rate Of Change Comparison Between Clusters
+
+def plot_mean_rate_of_change(df, graph_base_path):
     mean_rates = df.groupby("Cluster")["Rate_of_Change"].mean()
 
     if not mean_rates.empty:
@@ -492,19 +490,31 @@ def freezing_graphs(meta_data):
         plt.close()  # Close the figure
 
 
+def freezing_graphs(meta_data):
+    df = collect_dfs_for_freezing_graphs(meta_data)
+    graph_base_path = Path(meta_data["output_path"]) / "graphs" / "freezing"
+
+    plot_linear_scale(df, graph_base_path)
+    plot_log_scale(df, graph_base_path)
+    plot_mean_rate_of_change(df, graph_base_path)
+
+
 def graph_all(meta_data):
+    os.makedirs(Path(meta_data["output_path"]) / "graphs", exist_ok=True)
+
     tsne_plot(meta_data)
     create_heatmap_plot(meta_data)
-    graph_pie(meta_data)
-    graph_bar(meta_data)
+
+    graph_cluster_percentage_pie_chart(meta_data)
+    graph_cluster_percentage_trial_bar_chart(meta_data)
 
     if meta_data["experiment"] == "fear_voiding":
-        graph_mouse_var_graph(meta_data)
+        graph_cluster_percentage_bar_char(meta_data)
         freezing_graphs(meta_data)
 
 
 if __name__ == "__main__":
-    file_path = "/home/thomas/washu/behavior_clustering/outputs/fear_voiding_8_frames_reduced4x_pca_rotated_2/meta_data.pkl"
+    file_path = "/home/thomas/washu/behavior_clustering/outputs/fear_voiding_8_frames_reduced4x_pca_rotated_4/meta_data.pkl"
 
     with open(file_path, "rb") as file:
         meta_data = pickle.load(file)

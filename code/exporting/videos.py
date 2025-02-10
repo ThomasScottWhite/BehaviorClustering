@@ -59,18 +59,17 @@ def put_outlined_text(
     return frame
 
 
-def generate_videos(output_path):
-    with open(f"{output_path}/metadata.json", "r") as file:
-        meta_data = json.load(file)
+def generate_videos(meta_data):
+    output_path = meta_data["output_path"]
+    for index, video in meta_data["videos"].items():
 
-    for path in glob.glob(f"{output_path}/*/*.csv"):
+        csv = video["df"]
+        video_path = video["video_path"]
 
-        csv_path = Path(path)
-        os.makedirs(f"{output_path}/videos/{csv_path.stem}", exist_ok=True)
+        os.makedirs(
+            f"{meta_data["output_path"]}/videos/{video["trial"]}", exist_ok=True
+        )
 
-        video_data = meta_data["videos"][csv_path.stem]
-
-        video_path = video_data["video_path"]
         if "Tonehabituation" in video_path:
             video_path = video_path.replace("Tonehabituation", "Habituation")
         if "Evaluation_Session1" in video_path:
@@ -81,37 +80,6 @@ def generate_videos(output_path):
         if not os.path.exists(video_path):
             print(f"Video not found: {video_path}")
             continue
-
-        csv = pd.read_csv(csv_path, index_col=0)
-
-        event_dicts = {}
-        for event in meta_data["event_columns"]:
-            mask = csv[event]
-            results = csv[mask]
-            event_dicts[event] = list(results.index)
-
-    os.makedirs(f"{output_path}/videos", exist_ok=True)
-
-    for path in tqdm(glob.glob(f"{output_path}/*/*.csv")):
-
-        csv_path = Path(path)
-        os.makedirs(f"{output_path}/videos/{csv_path.stem}", exist_ok=True)
-
-        video_data = meta_data["videos"][csv_path.stem]
-
-        video_path = video_data["video_path"]
-        if "Tonehabituation" in video_path:
-            video_path = video_path.replace("Tonehabituation", "Habituation")
-        if "Evaluation_Session1" in video_path:
-            video_path = video_path.replace(
-                "Evaluation_Session1", "ConditinedTone_Session1"
-            )
-
-        if not os.path.exists(video_path):
-            print(f"Video not found: {video_path}")
-            continue
-
-        csv = pd.read_csv(csv_path, index_col=0)
 
         event_dicts = {}
         for event in meta_data["event_columns"]:
@@ -139,22 +107,25 @@ def generate_videos(output_path):
         # Set up the video writer
         fourcc = cv2.VideoWriter_fourcc(*"XVID")  # Codec for AVI files
         out = cv2.VideoWriter(
-            f"{output_path}/videos/{csv_path.stem}/output_video.avi",
+            f"{output_path}/videos/{video["trial"]}/output_video.avi",
             fourcc,
             fps,
             (frame_width, frame_height),
         )
 
-        videos = [0] * 8
-        for i in range(8):
+        num_clusters = csv["Cluster"].max() + 1
+        videos = [0] * num_clusters
+
+        for i in range(num_clusters):
             videos[i] = cv2.VideoWriter(
-                f"{output_path}/videos/{csv_path.stem}/{i}.avi",
+                f"{output_path}/videos/{video["trial"]}/{i}.avi",
                 fourcc,
                 fps,
                 (frame_width, frame_height),
             )
 
         frame_index = 0
+
         while cap.isOpened() and frame_index < frames_to_process:
             ret, frame = cap.read()
             if not ret:
@@ -174,7 +145,7 @@ def generate_videos(output_path):
             frame = put_outlined_text(
                 frame,
                 f"Cluster {numbers[frame_index]}",
-                (50, 60),
+                position_cluster,
                 font,
                 font_scale,
                 font_color,
@@ -184,7 +155,7 @@ def generate_videos(output_path):
             frame = put_outlined_text(
                 frame,
                 f"Bout {bouts[frame_index]}",
-                (50, 30),
+                position_bout,
                 font,
                 font_scale,
                 font_color,
@@ -249,10 +220,16 @@ def generate_videos(output_path):
 
         print(f"Video saved to {output_path}")
 
-    for video in videos:
-        video.release()
+        for video in videos:
+            video.release()
 
+
+import pickle
 
 if __name__ == "__main__":
-    output_path = "/home/thomas/washu/behavior_clustering/outputs/0.5 second bouts Fang"
-    generate_videos(output_path)
+    file_path = "/home/thomas/washu/behavior_clustering/outputs/fear_voiding_8_frames_reduced4x_pca_rotated_9/meta_data.pkl"
+
+    with open(file_path, "rb") as file:
+        meta_data = pickle.load(file)
+
+    generate_videos(meta_data)
