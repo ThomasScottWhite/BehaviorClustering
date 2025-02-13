@@ -1,19 +1,13 @@
 # %%%
 import pandas as pd
 import numpy as np
-import os
-import seaborn as sns
-from sklearn.manifold import TSNE
-from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import RobustScaler, FunctionTransformer
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.manifold import TSNE
 from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
-import os
-import numpy as np
-import pandas as pd
+from umap import UMAP
+from sklearn.manifold import TSNE
 
 
 def cluster_videos_with_frame_recluster(
@@ -142,14 +136,16 @@ def cluster_videos_pre_group(
 
 def cluster_videos_with_pca(
     meta_data: dict,
-    bout_frames,
-    append_results_to_df=True,
-    pca_variance=0.95,  # Fraction of variance to retain in PCA
+    bout_frames: int,
+    append_results_to_df: bool = True,
+    pca_variance: float = 0.99,  # Fraction of variance to retain in PCA
+    reduction: str = "umap",  # "umap" or "tsne"
+    n_clusters: int = 15,  # Number of clusters for KMeans
 ) -> dict:
+    # --- Step 1: Prepare Input Data ---
     start_index = 0
     tsne_input = []
 
-    # Prepare t-SNE input data
     for video in meta_data["videos"].values():
         video["tsne_start"] = start_index
         video["tsne_end"] = start_index + video["df"]["Group"].nunique()
@@ -157,37 +153,77 @@ def cluster_videos_with_pca(
 
         # Extract (_x, _y) columns and reshape per bout_frames
         df_xy = video["df"][meta_data["data_columns"]]
-
         new_values = df_xy.values.reshape(-1, len(df_xy.columns) * bout_frames)
         tsne_input.append(new_values)
 
     tsne_input = np.vstack(tsne_input)
 
-    # Apply Scaler Normalization
-    scaler = StandardScaler()
-    tsne_input = scaler.fit_transform(tsne_input)
-    print("Applied standardization (Z-score normalization)")
+    columns = []
+    # If you originally had e.g. ["Nose_speed", "Hindpaw_speed", "Body_angle", "Rigidity", "Ear_rel_x", ...]
+    # and you have 'bout_frames' frames, you need to name them:
+    for f in range(bout_frames):
+        for col in meta_data["data_columns"]:
+            columns.append(f"{col}_frame{f}")
 
-    # Apply PCA to reduce dimensionality
-    pca = PCA(n_components=pca_variance, svd_solver="full")
-    pca_input = pca.fit_transform(tsne_input)
-    print(f"PCA reduced dimensions from {tsne_input.shape[1]} to {pca_input.shape[1]}")
+    df_bouts = pd.DataFrame(tsne_input, columns=columns)
 
-    # Apply t-SNE
-    tsne_results = TSNE(
-        n_components=2,
-        perplexity=15,  # Reduced for finer behavioral clusters
-        learning_rate=150,
-        max_iter=2500,
-        init="pca",
-        method="barnes_hut",
-        random_state=42,
-    ).fit_transform(pca_input)
+    # --- Step 3: Preprocessing Pipeline ---
+    from sklearn.compose import make_column_selector
 
-    # Cluster using k-means
-    kmeans_labels = KMeans(n_clusters=15, random_state=42).fit_predict(tsne_results)
+    # If all columns that contain "Nose_speed" or "Hindpaw_speed" across all frames:
+    speed_cols = [
+        c for c in df_bouts.columns if "Nose_speed" in c or "Hindpaw_speed" in c
+    ]
+    posture_cols = [c for c in df_bouts.columns if "Body_angle" in c or "Rigidity" in c]
+    coords_cols = [c for c in df_bouts.columns if "_rel" in c]
 
-    # Create DataFrame for t-SNE results and assign cluster labels
+    preprocessor = ColumnTransformer(
+        [
+            ("speed", RobustScaler(), speed_cols),
+            ("posture", RobustScaler(), posture_cols),
+            ("coords", RobustScaler(), coords_cols),
+        ],
+        remainder="passthrough",  # so you don't lose other columns
+    )
+
+    # --- Step 4: Dimensionality Reduction ---
+    if reduction == "umap":
+        reducer = UMAP(
+            n_components=2,
+            n_neighbors=100,
+            min_dist=0.1,
+            random_state=42,
+            densmap=True,
+            metric="cosine",
+        )
+    else:
+        reducer = TSNE(
+            n_components=2,
+            perplexity=15,
+            learning_rate=150,
+            max_iter=2500,
+            init="pca",
+            method="barnes_hut",
+            random_state=42,
+        )
+
+    # --- Step 5: Full Pipeline ---
+    pipeline = Pipeline(
+        [
+            ("pre", preprocessor),
+            ("pca", PCA(n_components=pca_variance, svd_solver="full")),
+            ("reduce", reducer),
+        ]
+    )
+
+    # Fit and transform the data
+    tsne_results = pipeline.fit_transform(df_bouts)
+
+    # --- Step 6: Clustering ---
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    kmeans_labels = kmeans.fit_predict(tsne_results)
+
+    # --- Step 7: Store Results ---
     tsne_df = pd.DataFrame(tsne_results, columns=["TSNE_1", "TSNE_2"])
     tsne_df["Cluster"] = kmeans_labels
 

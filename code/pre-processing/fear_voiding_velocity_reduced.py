@@ -166,10 +166,24 @@ def fix_pose_data(df_path):
     original_column_names = df.columns.tolist()
     df = pd.concat([df, relative_coordinates], axis=1)
 
-    # Velocity and Acceleration
-    for col in x_cols + y_cols:
-        df[f"{col}_velocity"] = df[col].diff().fillna(0)
-        df[f"{col}_acceleration"] = df[f"{col}_velocity"].diff().fillna(0)
+    print(df.columns)
+    speed_cols = []
+    for part in freezing_points:
+        if "Ear_" in part or "Spine1_" in part:
+            continue
+        df[f"{part}_speed"] = np.sqrt(df[f"{part}_x"] ** 2 + df[f"{part}_y"] ** 2)
+        speed_cols.append(f"{part}_speed")
+
+    df["Rigidity"] = 1 / (
+        1
+        + df[[f"{pt}_speed" for pt in ["Nose", "R_hindpaw", "L_hindpaw"]]].mean(axis=1)
+    )
+
+    df["Ear_symmetry"] = np.abs(df["RightEar_x_rel"] - df["LeftEar_x_rel"]) + np.abs(
+        df["RightEar_y_rel"] - df["LeftEar_y_rel"]
+    )
+
+    df["Tail_elevation"] = df["TailBase_y_rel"] - df["Hipbone_y_rel"]
 
     df["Nose_to_TailRoot_dist"] = np.sqrt(
         (df["Nose_x"] - df["TailBase_x"]) ** 2 + (df["Nose_y"] - df["TailBase_y"]) ** 2
@@ -190,8 +204,8 @@ def fix_pose_data(df_path):
     keep += relative_column_names
     keep += ["Nose_to_TailRoot_dist"]
     keep += ["Body_angle"]
-    keep += [f"{col}_velocity" for col in x_cols + y_cols]
-    keep += [f"{col}_acceleration" for col in x_cols + y_cols]
+    keep += speed_cols
+    keep += ["Rigidity", "Ear_symmetry", "Tail_elevation"]
 
     return original_column_names, keep
 
@@ -326,6 +340,7 @@ def main():
                 "trial": trial,
                 "video_path": str(
                     data_dir
+                    / "fear_voiding"
                     / "videos"
                     / f"{trial + '_'+ folder[-12:] + '_Side_view'}.AVI"
                 ),  # /home/thomas/washu/behavior_clustering/data/fear_voiding/videos/Evaluation_Session1 _ Ai213_7-6_#2 _Side_view.AVI

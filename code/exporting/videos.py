@@ -59,17 +59,67 @@ def put_outlined_text(
     return frame
 
 
+def precompute_next_prev_events(event_dicts, frames_to_process):
+    """
+    Precompute, for each event and each frame i, the indices of the previous
+    and next occurrences of that event. Returns two dictionaries:
+      prev_events[event_name][i] -> frame index of previous event or None
+      next_events[event_name][i] -> frame index of next event or None
+    """
+    prev_events = {}
+    next_events = {}
+
+    for event_name, frame_list in event_dicts.items():
+        # Sort the frame_list just in case
+        sorted_frames = sorted(frame_list)
+
+        # Initialize arrays
+        prev_arr = [None] * frames_to_process
+        next_arr = [None] * frames_to_process
+
+        # Single pass to fill prev_arr:
+        #   We'll walk through sorted_frames and mark that for every
+        #   frame from sorted_frames[k] up to the next event, the "prev" is sorted_frames[k].
+        current_event_idx = 0
+        last_event_frame = None
+
+        for i in range(frames_to_process):
+            # Move forward in sorted_frames if we've passed the current event
+            while (
+                current_event_idx < len(sorted_frames)
+                and i >= sorted_frames[current_event_idx]
+            ):
+                last_event_frame = sorted_frames[current_event_idx]
+                current_event_idx += 1
+            prev_arr[i] = last_event_frame
+
+        # Single pass to fill next_arr (go from end -> start):
+        current_event_idx = len(sorted_frames) - 1
+        next_event_frame = None
+
+        for i in reversed(range(frames_to_process)):
+            while current_event_idx >= 0 and i <= sorted_frames[current_event_idx]:
+                next_event_frame = sorted_frames[current_event_idx]
+                current_event_idx -= 1
+            next_arr[i] = next_event_frame
+
+        prev_events[event_name] = prev_arr
+        next_events[event_name] = next_arr
+
+    return prev_events, next_events
+
+
 def generate_videos(meta_data):
-    output_path = meta_data["output_path"]
     for index, video in meta_data["videos"].items():
 
         csv = video["df"]
         video_path = video["video_path"]
 
-        os.makedirs(
-            f"{meta_data["output_path"]}/videos/{video["trial"]}", exist_ok=True
-        )
+        # Make output directory
+        out_dir = f'{meta_data["output_path"]}/videos/{video["trial"]}'
+        os.makedirs(out_dir, exist_ok=True)
 
+        # Replace path segments if needed
         if "Tonehabituation" in video_path:
             video_path = video_path.replace("Tonehabituation", "Habituation")
         if "Evaluation_Session1" in video_path:
@@ -81,71 +131,69 @@ def generate_videos(meta_data):
             print(f"Video not found: {video_path}")
             continue
 
+        # Gather event frames
         event_dicts = {}
         for event in meta_data["event_columns"]:
-            mask = csv[event]
-            results = csv[mask]
-            event_dicts[event] = list(results.index)
+            mask = csv[event]  # boolean mask for that event
+            results = csv[mask]  # rows where that event is True
+            event_dicts[event] = list(results.index)  # frame indices
 
-        # Input parameters
-        bouts = csv["Group"]
-        numbers = csv["Cluster"]
+        # Input columns
+        bouts = csv["Group"].values
+        numbers = csv["Cluster"].values
 
         # Open the video file
         cap = cv2.VideoCapture(video_path)
 
-        # Get video properties
+        # Get properties
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        # Determine the number of frames to process
+        # Determine how many frames we actually need
         frames_to_process = min(len(numbers), frame_count)
-
         print(f"Processing {frames_to_process} frames out of {frame_count}.")
-        # Set up the video writer
-        fourcc = cv2.VideoWriter_fourcc(*"XVID")  # Codec for AVI files
-        out = cv2.VideoWriter(
-            f"{output_path}/videos/{video["trial"]}/output_video.avi",
-            fourcc,
-            fps,
-            (frame_width, frame_height),
+
+        # Precompute next/previous events for each frame
+        prev_events, next_events = precompute_next_prev_events(
+            event_dicts, frames_to_process
         )
 
+        # Set up the main video writer
+        fourcc = cv2.VideoWriter_fourcc(*"XVID")
+        out_path = os.path.join(out_dir, "output_video.avi")
+        out = cv2.VideoWriter(out_path, fourcc, fps, (frame_width, frame_height))
+
+        # One writer per cluster
         num_clusters = csv["Cluster"].max() + 1
-        videos = [0] * num_clusters
-
+        cluster_writers = []
         for i in range(num_clusters):
-            videos[i] = cv2.VideoWriter(
-                f"{output_path}/videos/{video["trial"]}/{i}.avi",
-                fourcc,
-                fps,
-                (frame_width, frame_height),
+            cluster_path = os.path.join(out_dir, f"{i}.avi")
+            writer = cv2.VideoWriter(
+                cluster_path, fourcc, fps, (frame_width, frame_height)
             )
+            cluster_writers.append(writer)
 
+        # Font params for text
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1
+        font_color = (255, 255, 255)
+        thickness = 3
+        outline_color = (0, 0, 0)
+
+        # Read and process frames
         frame_index = 0
-
         while cap.isOpened() and frame_index < frames_to_process:
             ret, frame = cap.read()
             if not ret:
                 break
 
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 1
-            font_color = (255, 255, 255)  # Main text color
-            thickness = 3
-            position_cluster = (50, 60)  # Position for Cluster text
-            position_bout = (50, 30)  # Position for Bout text
-            shadow_offset = 2  # Offset for the shadow
-
-            # Shadow color (black)
-            outline_color = (0, 0, 0)
-
+            # Overlay cluster/bout text
             frame = put_outlined_text(
                 frame,
                 f"Cluster {numbers[frame_index]}",
-                position_cluster,
+                (50, 60),
                 font,
                 font_scale,
                 font_color,
@@ -155,7 +203,7 @@ def generate_videos(meta_data):
             frame = put_outlined_text(
                 frame,
                 f"Bout {bouts[frame_index]}",
-                position_bout,
+                (50, 30),
                 font,
                 font_scale,
                 font_color,
@@ -163,34 +211,31 @@ def generate_videos(meta_data):
                 thickness,
             )
 
-            # Logic for determining next and previous times
+            # Overlay next/previous events
             event_counter = 0
-            for event_name, event_array in event_dicts.items():
-                event_counter += 1
-                previous = 0
-                next_index = 0
+            for event_name in meta_data["event_columns"]:
+                prev_idx = prev_events[event_name][frame_index]
+                next_idx = next_events[event_name][frame_index]
 
-                for idx in event_array:
-                    if frame_index < idx:
-                        next_index = idx
-                        break
-                    else:
-                        previous = idx
-
-                if next_index == 0:
+                if next_idx is None:
                     next_string = f"Next {event_name}: NA"
                 else:
-                    next_string = f"Next {event_name} {int((next_index - frame_index)/fps)} Seconds"
+                    sec_until = int((next_idx - frame_index) / fps)
+                    next_string = f"Next {event_name} {sec_until} Seconds"
 
-                if previous == 0:
-                    previous_string = f"Previous {event_name}: NA"
+                if prev_idx is None:
+                    prev_string = f"Previous {event_name}: NA"
                 else:
-                    previous_string = f"Previous {event_name} in {int((frame_index - previous)/fps)} Seconds Ago"
+                    sec_ago = int((frame_index - prev_idx) / fps)
+                    prev_string = f"Previous {event_name} in {sec_ago} Seconds Ago"
+
+                y_next = 90 + event_counter * 60
+                y_prev = 120 + event_counter * 60
 
                 frame = put_outlined_text(
                     frame,
                     next_string,
-                    (50, (90 + event_counter * 60)),
+                    (50, y_next),
                     font,
                     font_scale,
                     font_color,
@@ -199,17 +244,19 @@ def generate_videos(meta_data):
                 )
                 frame = put_outlined_text(
                     frame,
-                    previous_string,
-                    (50, (120 + event_counter * 60)),
+                    prev_string,
+                    (50, y_prev),
                     font,
                     font_scale,
                     font_color,
                     outline_color,
                     thickness,
                 )
+                event_counter += 1
 
-            # Write the frame to the output video
-            videos[numbers[frame_index]].write(frame)
+            # Write frame to the appropriate cluster file and to output
+            cluster_idx = numbers[frame_index]
+            cluster_writers[cluster_idx].write(frame)
             out.write(frame)
 
             frame_index += 1
@@ -217,11 +264,10 @@ def generate_videos(meta_data):
         # Release resources
         cap.release()
         out.release()
+        for w in cluster_writers:
+            w.release()
 
-        print(f"Video saved to {output_path}")
-
-        for video in videos:
-            video.release()
+        print(f"Video saved to {out_path}")
 
 
 import pickle

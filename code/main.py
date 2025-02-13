@@ -1,25 +1,25 @@
 # %%%
 import json
-import pandas as pd
-import numpy as np
-from sklearn.manifold import TSNE
-from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
 import os
 import numpy as np
 import pandas as pd
 import shutil
-import seaborn as sns
-from clustering import tsne
+from clustering import clustering
 from exporting import graphs, videos
-import cv2
-import pandas as pd
-import cv2
-import argparse
 import pickle
+from pathlib import Path
 
 
 def load_metadata(file_path):
+    """
+    Load metadata from a JSON file and read associated CSV files into DataFrames.
+
+    Args:
+        file_path (str): Path to the metadata JSON file.
+
+    Returns:
+        dict: Metadata dictionary with DataFrames added for each video.
+    """
     with open(file_path, "r") as file:
         meta_data = json.load(file)
 
@@ -31,6 +31,13 @@ def load_metadata(file_path):
 def rotate_points_global(df, ref_points=["Nose", "Spine1", "Hipbone"]):
     """
     Rotate data to align the plane defined by 3 points (e.g., nose, spine, hip) with the x-axis.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing the coordinates.
+        ref_points (list): List of reference points to define the plane.
+
+    Returns:
+        pd.DataFrame: Rotated DataFrame.
     """
     # Extract coordinates for the 3 reference points
     p1 = df[[f"{ref_points[0]}_x", f"{ref_points[0]}_y"]].values
@@ -66,12 +73,32 @@ def rotate_points_global(df, ref_points=["Nose", "Spine1", "Hipbone"]):
 
 
 def rotate_all(meta_data, ref_points=["Nose", "Spine1", "Hipbone"]):
+    """
+    Rotate all videos' data to align with the x-axis.
+
+    Args:
+        meta_data (dict): Metadata dictionary containing DataFrames for each video.
+        ref_points (list): List of reference points to define the plane.
+
+    Returns:
+        dict: Updated metadata dictionary with rotated DataFrames.
+    """
     for video in meta_data["videos"].values():
         video["df"] = rotate_points_global(video["df"], ref_points)
     return meta_data
 
 
 def add_bouts(meta_data, bout_frames=4):
+    """
+    Add bout information to each video's DataFrame.
+
+    Args:
+        meta_data (dict): Metadata dictionary containing DataFrames for each video.
+        bout_frames (int): Number of frames in each bout.
+
+    Returns:
+        dict: Updated metadata dictionary with bout information added.
+    """
     for video in meta_data["videos"].values():
 
         total_frames = len(video["df"])
@@ -85,6 +112,12 @@ def add_bouts(meta_data, bout_frames=4):
 
 
 def save_csvs(meta_data):
+    """
+    Save the processed DataFrames to CSV files.
+
+    Args:
+        meta_data (dict): Metadata dictionary containing DataFrames for each video.
+    """
     for video_name, video in meta_data["videos"].items():
         os.makedirs(f'{meta_data['output_path']}/csvs/{video["trial"]}', exist_ok=True)
         video["df"].to_csv(
@@ -93,12 +126,28 @@ def save_csvs(meta_data):
 
 
 def save_tsne_results(meta_data):
+    """
+    Save the t-SNE results to a CSV file.
+
+    Args:
+        meta_data (dict): Metadata dictionary containing t-SNE results.
+    """
     meta_data["tsne_results"].to_csv(
-        f"{meta_data['output_path']}/csvs/tsne_results.csv"
+        f"{meta_data["output_path"]}/csvs/tsne_results.csv"
     )
 
 
 def reduce_dfs(meta_data, factor=4):
+    """
+    Reduce the DataFrames by a specified factor.
+
+    Args:
+        meta_data (dict): Metadata dictionary containing DataFrames for each video.
+        factor (int): Factor by which to reduce the DataFrames.
+
+    Returns:
+        dict: Updated metadata dictionary with reduced DataFrames.
+    """
     event_columns = meta_data["event_columns"]
     for video in meta_data["videos"].values():
         df = video["df"]
@@ -126,6 +175,16 @@ def reduce_dfs(meta_data, factor=4):
 
 
 def increase_dfs(meta_data, factor=4):
+    """
+    Increase the DataFrames by a specified factor.
+
+    Args:
+        meta_data (dict): Metadata dictionary containing DataFrames for each video.
+        factor (int): Factor by which to increase the DataFrames.
+
+    Returns:
+        dict: Updated metadata dictionary with increased DataFrames.
+    """
     for video in meta_data["videos"].values():
         video["df"] = (
             video["df"].loc[np.repeat(video["df"].index, factor)].reset_index(drop=True)
@@ -133,42 +192,74 @@ def increase_dfs(meta_data, factor=4):
     return meta_data
 
 
-def make_output_directory(meta_data, metadatasource, output_path_name):
-    output_path = f"./../outputs/{output_path_name}/"
+def make_output_directory(meta_data, metadatasource):
+    """
+    Create an output directory for storing results.
+
+    Args:
+        meta_data (dict): Metadata dictionary.
+        metadatasource (str): Path to the metadata source file.
+
+    Returns:
+        dict: Updated metadata dictionary with the output path added.
+    """
+
+    output_path_name = f"{meta_data["experiment"]}_{bout_frames}_frames"
+    if reduction_factor != 1:
+        output_path_name += f"_reduced{reduction_factor}x"
+    output_path_name += f"_{clustering}"
+    if rotation:
+        output_path_name += "_rotated"
+
+    base_output_dir = (Path(__file__).resolve().parent / "../outputs").resolve()
+    output_path = base_output_dir / output_path_name
 
     counter = 0
-    while os.path.exists(output_path):
+    # If the path already exists, append a counter to create a unique directory.
+    while output_path.exists():
         counter += 1
-        output_path = f"./../outputs/{output_path_name}_{counter}/"
+        output_path = base_output_dir / f"{output_path_name}_{counter}"
 
     meta_data["output_path"] = output_path
-    os.makedirs(meta_data["output_path"], exist_ok=True)
-    shutil.copy(metadatasource, f'{meta_data["output_path"]}metadata.json')
+    os.makedirs(output_path, exist_ok=True)
+    shutil.copy(metadatasource, output_path / "metadata.json")
+
     return meta_data
 
 
 def pickle_meta_data(meta_data):
+    """
+    Save the metadata dictionary to a pickle file.
 
+    Args:
+        meta_data (dict): Metadata dictionary.
+    """
     with open(f"{meta_data['output_path']}/meta_data.pkl", "wb") as f:
         pickle.dump(meta_data, f)
-
-
-import json
-import os
 
 
 def main(
     metadatasource,
     bout_frames=16,
     reduction_factor=4,
-    clustering="tsne",
+    cluster_method="tsne",
     rotation=True,
     video=False,
 ):
+    """
+    Main function to process metadata and generate outputs.
+
+    Args:
+        metadatasource (str): Path to the metadata source file.
+        bout_frames (int): Number of frames in a bout.
+        reduction_factor (int): Factor by which to reduce the DataFrames.
+        cluster_method (str): Clustering method to use ('tsne', 'pca', 'pre_group').
+        rotation (bool): Whether to rotate the data.
+        video (bool): Whether to generate videos.
+    """
     # Metadata source
 
     print("Step 1: Load and process metadata")
-    # Load and process metadata
     meta_data = load_metadata(metadatasource)
     meta_data = reduce_dfs(meta_data, reduction_factor)
 
@@ -178,21 +269,14 @@ def main(
         else:
             meta_data = rotate_all(meta_data)
 
-    output_path_name = f"{meta_data["experiment"]}_{bout_frames}_frames"
-    if reduction_factor != 1:
-        output_path_name += f"_reduced{reduction_factor}x"
-    output_path_name += f"_{clustering}"
-    if rotation:
-        output_path_name += "_rotated"
-
-    meta_data = make_output_directory(meta_data, metadatasource, output_path_name)
+    meta_data = make_output_directory(meta_data, metadatasource)
 
     # Save parameters to a config file in the output directory
     config_path = os.path.join(meta_data["output_path"], "args.json")
     config = {
         "bout_frames": bout_frames,
         "reduction_factor": reduction_factor,
-        "clustering": clustering,
+        "cluster_method": cluster_method,
         "rotation": rotation,
     }
     with open(config_path, "w") as config_file:
@@ -202,17 +286,12 @@ def main(
     # Add bouts and cluster videos
     meta_data = add_bouts(meta_data, bout_frames=bout_frames)
 
-    if clustering == "tsne":
-        meta_data = tsne.cluster_videos(meta_data, bout_frames=bout_frames)
-    elif clustering == "pca":
-        meta_data = tsne.cluster_videos_with_pca(meta_data, bout_frames=bout_frames)
-    elif clustering == "pre_group":
-        meta_data = tsne.cluster_videos_pre_group(meta_data, bout_frames=bout_frames)
-
-    # if pca:
-    #     meta_data = tsne.cluster_videos_with_pca(meta_data, bout_frames=bout_frames)
-    # else:
-    #     meta_data = tsne.cluster_videos_pre_group(meta_data, bout_frames=bout_frames)
+    if cluster_method == "umap_pca":
+        meta_data = clustering.cluster_videos_with_pca(meta_data, bout_frames=bout_frames, reduction= "umap")
+    elif cluster_method == "tsne_pca":
+        meta_data = clustering.cluster_videos_with_pca(meta_data, bout_frames=bout_frames, reduction="tsne")
+    elif cluster_method == "pre_group":
+        meta_data = clustering.cluster_videos_pre_group(meta_data, bout_frames=bout_frames)
 
     print("Step 3: Generate outputs")
     # Revert dataframes and save outputs
@@ -221,12 +300,12 @@ def main(
     save_tsne_results(meta_data)
     pickle_meta_data(meta_data)
 
-    # print("Step 4: Generate graphs and videos")
-    # # Generate graphs and videos
-    # graphs.graph_all(meta_data)
+    print("Step 4: Generate graphs and videos")
+    # Generate graphs and videos
+    graphs.graph_all(meta_data)
 
-    # if video:
-    #     videos.generate_videos(meta_data["output_path"])
+    if video:
+        videos.generate_videos(meta_data["output_path"])
 
 
 if __name__ == "__main__":
@@ -235,7 +314,7 @@ if __name__ == "__main__":
 
     bout_frames = 8
     reduction_factor = 4
-    clustering = "pca"
+    cluster_method = "umap_pca"
     rotation = True
     video = False
 
@@ -243,35 +322,7 @@ if __name__ == "__main__":
         metadatasource=metadatasource,
         bout_frames=bout_frames,
         reduction_factor=reduction_factor,
-        clustering=clustering,
+        cluster_method=cluster_method,
         rotation=rotation,
         video=video,
     )
-
-    # # Parse command-line arguments for bout_frames and reduction_factor
-    # parser = argparse.ArgumentParser(
-    #     description="Process metadata and generate outputs."
-    # )
-    # parser.add_argument(
-    #     "--bout_frames", type=int, default=16, help="Number of frames in a bout"
-    # )
-    # parser.add_argument(
-    #     "--reduction_factor",
-    #     type=int,
-    #     default=4,
-    #     help="Factor by which dataframes are reduced",
-    # )
-    # parser.add_argument(
-    #     "--pca",
-    #     type=bool,
-    #     default=True,
-    #     help="Factor by which dataframes are reduced",
-    # )
-    # args = parser.parse_args()
-    # main(
-    #     bout_frames=args.bout_frames,
-    #     reduction_factor=args.reduction_factor,
-    #     pca=args.pca,
-    # )
-
-# %%

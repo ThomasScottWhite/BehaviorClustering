@@ -8,6 +8,12 @@ import pickle
 
 
 def tsne_plot(meta_data):
+    """
+    Generate t-SNE plots for the given metadata.
+
+    Args:
+        meta_data (dict): Metadata containing t-SNE results and output path.
+    """
     tsne_df = meta_data["tsne_results"]
 
     plt.figure(figsize=(10, 8))
@@ -48,6 +54,15 @@ def tsne_plot(meta_data):
 
 
 def generate_event_markers(meta_data, combined_df, heatmap_data, ax):
+    """
+    Generate event markers on the heatmap based on the experiment type.
+
+    Args:
+        meta_data (dict): Metadata containing experiment type and event information.
+        combined_df (DataFrame): Combined DataFrame of all videos.
+        heatmap_data (DataFrame): Data for the heatmap.
+        ax (Axes): Matplotlib Axes object for the heatmap.
+    """
     if meta_data["experiment"] == "Fang":
         for _, row in combined_df.iterrows():
             trial_video_idx = heatmap_data.index.tolist().index(row["Video"])
@@ -110,7 +125,14 @@ def generate_event_markers(meta_data, combined_df, heatmap_data, ax):
 
 
 def graph_heatmap(meta_data, combined_df, graph_path):
+    """
+    Generate a heatmap of clusters with event markers.
 
+    Args:
+        meta_data (dict): Metadata containing experiment type and event information.
+        combined_df (DataFrame): Combined DataFrame of all videos.
+        graph_path (Path): Path to save the heatmap.
+    """
     heatmap_data = combined_df.pivot_table(
         index="Video",  # Combined Trial and Video as the row index
         columns="Group",  # Group as the x-axis
@@ -149,7 +171,15 @@ def graph_heatmap(meta_data, combined_df, graph_path):
 
 
 def combine_dfs(meta_data):
+    """
+    Combine DataFrames from all videos into a single DataFrame.
 
+    Args:
+        meta_data (dict): Metadata containing video information.
+
+    Returns:
+        DataFrame: Combined DataFrame of all videos.
+    """
     event_dict = {"Cluster": "mean"}
     for event in meta_data["event_columns"]:
         event_dict[event] = "max"
@@ -183,6 +213,12 @@ def combine_dfs(meta_data):
 
 
 def create_heatmap_plot(meta_data):
+    """
+    Create heatmap plots for each trial and a combined heatmap.
+
+    Args:
+        meta_data (dict): Metadata containing video information and output path.
+    """
     combined_df = combine_dfs(meta_data)
     trial_names = combined_df["Trial"].unique()
     for trial in trial_names:
@@ -203,7 +239,12 @@ def create_heatmap_plot(meta_data):
 
 
 def graph_cluster_percentage_pie_chart(meta_data):
+    """
+    Generate pie charts showing the percentage of each cluster for individual videos and trials.
 
+    Args:
+        meta_data (dict): Metadata containing video information and output path.
+    """
     df = combine_dfs(meta_data)
 
     # Graphs Individual Video Cluster Percentage
@@ -264,7 +305,12 @@ def graph_cluster_percentage_pie_chart(meta_data):
 
 
 def graph_cluster_percentage_trial_bar_chart(meta_data):
+    """
+    Generate bar charts showing the percentage of each cluster for individual trials.
 
+    Args:
+        meta_data (dict): Metadata containing video information and output path.
+    """
     df = combine_dfs(meta_data)
 
     # Iterate through groups in "Trial"
@@ -318,6 +364,12 @@ def graph_cluster_percentage_trial_bar_chart(meta_data):
 
 
 def graph_cluster_percentage_bar_char(meta_data):
+    """
+    Generate a bar chart showing the percentage of each cluster for all trials combined.
+
+    Args:
+        meta_data (dict): Metadata containing video information and output path.
+    """
     df = combine_dfs(meta_data)
     cluster_percentages = []
     video_names = []
@@ -358,7 +410,6 @@ def graph_cluster_percentage_bar_char(meta_data):
     plt.grid(axis="y", linestyle="--", alpha=0.7)
 
     # Save the graph
-    # Save the graph
     graph_path = Path(meta_data["output_path"]) / "graphs" / "cluster_percentage_graphs"
     os.makedirs(graph_path, exist_ok=True)
 
@@ -370,6 +421,15 @@ def graph_cluster_percentage_bar_char(meta_data):
 
 
 def collect_dfs_for_freezing_graphs(meta_data):
+    """
+    Collect DataFrames for freezing graphs.
+
+    Args:
+        meta_data (dict): Metadata containing video information.
+
+    Returns:
+        DataFrame: Combined DataFrame of all videos with rate of change information.
+    """
     dfs = []
 
     # Combines Video DFs into one dataframe
@@ -428,6 +488,13 @@ def collect_dfs_for_freezing_graphs(meta_data):
 
 
 def plot_linear_scale(df, graph_base_path):
+    """
+    Plot the rate of change distribution for each cluster on a linear scale.
+
+    Args:
+        df (DataFrame): DataFrame containing rate of change information.
+        graph_base_path (Path): Base path to save the graphs.
+    """
     for cluster in df["Cluster"].unique():
         cluster_df = df[df["Cluster"] == cluster]
         data = cluster_df["Rate_of_Change"]
@@ -447,6 +514,13 @@ def plot_linear_scale(df, graph_base_path):
 
 
 def plot_log_scale(df, graph_base_path):
+    """
+    Plot the rate of change distribution for each cluster on a logarithmic scale.
+
+    Args:
+        df (DataFrame): DataFrame containing rate of change information.
+        graph_base_path (Path): Base path to save the graphs.
+    """
     for cluster in df["Cluster"].unique():
         cluster_df = df[df["Cluster"] == cluster]
         data = cluster_df["Rate_of_Change"]
@@ -479,6 +553,13 @@ def plot_log_scale(df, graph_base_path):
 
 
 def plot_mean_rate_of_change(df, graph_base_path):
+    """
+    Plot the mean rate of change for each cluster.
+
+    Args:
+        df (DataFrame): DataFrame containing rate of change information.
+        graph_base_path (Path): Base path to save the graphs.
+    """
     mean_rates = df.groupby("Cluster")["Rate_of_Change"].mean()
 
     if not mean_rates.empty:
@@ -491,6 +572,12 @@ def plot_mean_rate_of_change(df, graph_base_path):
 
 
 def freezing_graphs(meta_data):
+    """
+    Generate freezing graphs for the given metadata.
+
+    Args:
+        meta_data (dict): Metadata containing video information and output path.
+    """
     df = collect_dfs_for_freezing_graphs(meta_data)
     graph_base_path = Path(meta_data["output_path"]) / "graphs" / "freezing"
 
@@ -500,6 +587,12 @@ def freezing_graphs(meta_data):
 
 
 def graph_all(meta_data):
+    """
+    Generate all graphs for the given metadata.
+
+    Args:
+        meta_data (dict): Metadata containing video information and output path.
+    """
     os.makedirs(Path(meta_data["output_path"]) / "graphs", exist_ok=True)
 
     tsne_plot(meta_data)
